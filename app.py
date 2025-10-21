@@ -15,12 +15,17 @@ app = Flask(__name__)
 # Para desenvolvimento local, usa SQLite
 if os.environ.get('DATABASE_URL'):
     # Para produção (Render)
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace("postgres://", "postgresql://")
+    # Psycopg3 usa 'postgresql://' ao invés de 'postgres://'
+    database_url = os.environ.get('DATABASE_URL')
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
     # Para desenvolvimento local
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///irrigacao.db'
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy(app)
 
 # Modelo do banco para horários de rega
@@ -46,40 +51,43 @@ def verificador_horarios():
     global esta_regando, ultimo_comando
     
     while True:
-        agora = datetime.now()
-        hora_atual = agora.strftime("%H:%M")
-        dia_atual = agora.strftime("%a")  # "Mon", "Tue", etc.
-        
-        # Busca horários ativos
-        horarios = HorarioRega.query.filter_by(ativo=True).all()
-        
-        for horario in horarios:
-            # Verifica se é o dia correto
-            dias = horario.dias_semana.split(",")
-            if dia_atual in [d.strip() for d in dias]:
-                # Verifica se é a hora exata
-                if horario.hora == hora_atual and not esta_regando:
-                    print(f"🕐 {datetime.now()}: É hora de regar! ({horario.duracao}s)")
-                    esta_regando = True
-                    ultimo_comando = {
-                        "regar": True,
-                        "duracao": horario.duracao,
-                        "hora": horario.hora,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    
-                    # Simula o tempo de rega (em produção, o ESP controlaria isso)
-                    time_module.sleep(horario.duracao)
-                    
-                    esta_regando = False
-                    ultimo_comando = {
-                        "regar": False,
-                        "duracao": 0,
-                        "hora": horario.hora,
-                        "timestamp": datetime.now().isoformat(),
-                        "status": "concluido"
-                    }
-                    print(f"✅ Rega concluída às {datetime.now().strftime('%H:%M')}")
+        try:
+            with app.app_context():
+                agora = datetime.now()
+                hora_atual = agora.strftime("%H:%M")
+                dia_atual = agora.strftime("%a")  # "Mon", "Tue", etc.
+                
+                # Busca horários ativos
+                horarios = HorarioRega.query.filter_by(ativo=True).all()
+                
+                for horario in horarios:
+                    # Verifica se é o dia correto
+                    dias = horario.dias_semana.split(",")
+                    if dia_atual in [d.strip() for d in dias]:
+                        # Verifica se é a hora exata
+                        if horario.hora == hora_atual and not esta_regando:
+                            print(f"🕐 {datetime.now()}: É hora de regar! ({horario.duracao}s)")
+                            esta_regando = True
+                            ultimo_comando = {
+                                "regar": True,
+                                "duracao": horario.duracao,
+                                "hora": horario.hora,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            
+                            # Simula o tempo de rega (em produção, o ESP controlaria isso)
+                            time_module.sleep(horario.duracao)
+                            esta_regando = False
+                            ultimo_comando = {
+                                "regar": False,
+                                "duracao": 0,
+                                "hora": horario.hora,
+                                "timestamp": datetime.now().isoformat(),
+                                "status": "concluido"
+                            }
+                            print(f"✅ Rega concluída às {datetime.now().strftime('%H:%M')}")
+        except Exception as e:
+            print(f"❌ Erro no verificador: {e}")
         
         time_module.sleep(60)  # Verifica a cada minuto
 
@@ -98,6 +106,8 @@ def dashboard():
     <html>
     <head>
         <title>Sistema de Irrigação Residencial</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
             .container { background: #f5f5f5; padding: 20px; border-radius: 10px; }
@@ -171,7 +181,6 @@ def dashboard():
             // Função para adicionar horário
             document.getElementById('form-horario').addEventListener('submit', function(e) {
                 e.preventDefault();
-                
                 const hora = document.getElementById('hora').value;
                 const duracao = document.getElementById('duracao').value * 60; // Converte para segundos
                 const dias = Array.from(document.getElementById('dias').selectedOptions).map(opt => opt.value);
@@ -214,97 +223,5 @@ def dashboard():
     """
     
     return render_template_string(html_template, 
-                                horarios=horarios, 
-                                esta_regando=esta_regando, 
-                                status_atual=status_atual,
-                                ultimo_comando=ultimo_comando)
-
-# API para o ESP consultar status
-@app.route('/status', methods=['GET'])
-def status_api():
-    global esta_regando, ultimo_comando
-    
-    # Se está regando agora, retorna comando
-    if esta_regando:
-        return jsonify({
-            "regar": True,
-            "duracao": ultimo_comando["duracao"],
-            "timestamp": ultimo_comando["timestamp"]
-        })
-    
-    # Verifica se há comando pendente para agora
-    agora = datetime.now().strftime("%H:%M")
-    dia_atual = datetime.now().strftime("%a")
-    
-    horarios = HorarioRega.query.filter_by(ativo=True).all()
-    for horario in horarios:
-        dias = horario.dias_semana.split(",")
-        if dia_atual in [d.strip() for d in dias] and horario.hora == agora:
-            return jsonify({
-                "regar": True,
-                "duracao": horario.duracao,
-                "timestamp": datetime.now().isoformat()
-            })
-    
-    return jsonify({
-        "regar": False,
-        "timestamp": datetime.now().isoformat()
-    })
-
-# API para adicionar horário
-@app.route('/adicionar_horario', methods=['POST'])
-def adicionar_horario():
-    data = request.json
-    
-    if not data or 'hora' not in data:
-        return jsonify({"sucesso": False, "erro": "Dados inválidos"}), 400
-    
-    novo_horario = HorarioRega(
-        hora=data['hora'],
-        duracao=data.get('duracao', 600),
-        dias_semana=data.get('dias_semana', 'Seg,Sex')
-    )
-    
-    try:
-        db.session.add(novo_horario)
-        db.session.commit()
-        print(f"✅ Novo horário adicionado: {data['hora']} - {data.get('duracao', 600)}s")
-        return jsonify({"sucesso": True, "id": novo_horario.id})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"sucesso": False, "erro": str(e)}), 500
-
-# API para deletar horário
-@app.route('/deletar_horario/<int:id>', methods=['DELETE'])
-def deletar_horario(id):
-    horario = HorarioRega.query.get_or_404(id)
-    db.session.delete(horario)
-    db.session.commit()
-    return jsonify({"sucesso": True})
-
-# API para ativar/desativar horário
-@app.route('/ativar_horario/<int:id>', methods=['PUT'])
-def ativar_horario(id):
-    horario = HorarioRega.query.get_or_404(id)
-    data = request.json
-    horario.ativo = data.get('ativo', True)
-    db.session.commit()
-    return jsonify({"sucesso": True})
-
-# API para listar todos os horários (para debug)
-@app.route('/api/horarios', methods=['GET'])
-def listar_horarios():
-    horarios = HorarioRega.query.all()
-    return jsonify([{
-        "id": h.id,
-        "hora": h.hora,
-        "duracao": h.duracao,
-        "dias_semana": h.dias_semana,
-        "ativo": h.ativo
-    } for h in horarios])
-
-if __name__ == '__main__':
-    print("🚀 Iniciando Sistema de Irrigação...")
-    print("🌐 Acesse: http://localhost:5000")
-    print("📡 API Status (para ESP): http://localhost:5000/status")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+                                  horarios=horarios, 
+                                  esta_regando=esta_regan
