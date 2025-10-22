@@ -10,13 +10,22 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Configuração do banco de dados - FORÇA PSYCOPG3
 if os.environ.get('DATABASE_URL'):
+    # Pega a URL do banco
     database_url = os.environ.get('DATABASE_URL')
+    
+    # Converte para usar psycopg3 explicitamente
     if database_url.startswith('postgres://'):
-        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        database_url = database_url.replace('postgres://', 'postgresql+psycopg://', 1)
+    elif database_url.startswith('postgresql://'):
+        database_url = database_url.replace('postgresql://', 'postgresql+psycopg://', 1)
+    
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    print(f"🔗 Configurando PostgreSQL com psycopg3: {database_url[:50]}...")
 else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///irrigacao.db'
+    print("📱 Usando SQLite para desenvolvimento local")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -30,6 +39,7 @@ class HorarioRega(db.Model):
     ativo = db.Column(db.Boolean, default=True)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 
+# Cria as tabelas
 with app.app_context():
     db.create_all()
     print("✅ Banco de dados configurado!")
@@ -74,7 +84,7 @@ def dashboard():
 def status_api():
     global esta_regando, ultimo_comando
     if esta_regando:
-        return jsonify({"regar": True, "duracao": ultimo_comando["duracao"], "timestamp": ultimo_comando["timestamp"]})
+        return jsonify({"regar": True, "duracao": ultimo_comando["dur"], "timestamp": ultimo_comando["timestamp"]})
     agora = datetime.now().strftime("%H:%M")
     dia_atual = datetime.now().strftime("%a")
     horarios = HorarioRega.query.filter_by(ativo=True).all()
