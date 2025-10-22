@@ -222,6 +222,8 @@ def dashboard():
     </html>
     """
     
-    return render_template_string(html_template, 
+        return render_template_string(html_template, 
                                   horarios=horarios, 
-                                  esta_regando=esta_regan
+                                  esta_regando=esta_regando, 
+                                  status_atual=status_atual,
+                                  ultimo_comando=ultimo_comando)
