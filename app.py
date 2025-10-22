@@ -1,5 +1,7 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_bcrypt import Bcrypt
 from datetime import datetime
 import os
 from dotenv import load_dotenv
@@ -10,15 +12,15 @@ import pytz
 load_dotenv()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Configuração do fuso horário brasileiro
 TIMEZONE = pytz.timezone('America/Sao_Paulo')
 
-# Função auxiliar para pegar horário brasileiro
 def agora_br():
     return datetime.now(TIMEZONE)
 
-# Configuração do banco de dados - FORÇA PSYCOPG3
+# Configuração do banco de dados
 if os.environ.get('DATABASE_URL'):
     database_url = os.environ.get('DATABASE_URL')
     if database_url.startswith('postgres://'):
@@ -34,6 +36,27 @@ else:
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Por favor, faça login para acessar esta página.'
+login_manager.login_message_category = 'warning'
+
+# ==================== MODELOS DO BANCO ====================
+
+class Usuario(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    senha_hash = db.Column(db.String(200), nullable=False)
+    criado_em = db.Column(db.DateTime, default=lambda: agora_br())
+    horarios = db.relationship('HorarioRega', backref='usuario', lazy=True, cascade='all, delete-orphan')
+    
+    def set_senha(self, senha):
+        self.senha_hash = bcrypt.generate_password_hash(senha).decode('utf-8')
+    
+    def check_senha(self, senha):
+        return bcrypt.check_password_hash(self.senha_hash, senha)
 
 class HorarioRega(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -42,14 +65,23 @@ class HorarioRega(db.Model):
     dias_semana = db.Column(db.String(50), default="Seg,Sex")
     ativo = db.Column(db.Boolean, default=True)
     criado_em = db.Column(db.DateTime, default=lambda: agora_br())
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=False)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return Usuario.query.get(int(user_id))
 
 # Cria as tabelas
 with app.app_context():
     db.create_all()
     print(f"✅ Banco de dados configurado! Horário: {agora_br().strftime('%d/%m/%Y %H:%M:%S')} (Brasília)")
 
+# ==================== VARIÁVEIS GLOBAIS ====================
+
 esta_regando = False
 ultimo_comando = None
+
+# ==================== THREAD VERIFICADOR ====================
 
 def verificador_horarios():
     global esta_regando, ultimo_comando
@@ -60,7 +92,6 @@ def verificador_horarios():
                 hora_atual = agora.strftime("%H:%M")
                 dia_atual = agora.strftime("%a")
                 
-                # Mapeamento de dias da semana em português para inglês
                 dias_map = {
                     'Mon': 'Seg', 'Tue': 'Ter', 'Wed': 'Qua', 
                     'Thu': 'Qui', 'Fri': 'Sex', 'Sat': 'Sab', 'Sun': 'Dom'
@@ -71,7 +102,6 @@ def verificador_horarios():
                 
                 for horario in horarios:
                     dias = [d.strip() for d in horario.dias_semana.split(",")]
-                    
                     if dia_pt in dias:
                         if horario.hora == hora_atual and not esta_regando:
                             print(f"🕐 {agora.strftime('%d/%m/%Y %H:%M:%S')}: É hora de regar! ({horario.duracao}s)")
@@ -98,21 +128,165 @@ def verificador_horarios():
 
 threading.Thread(target=verificador_horarios, daemon=True).start()
 
+# ==================== ROTAS DE AUTENTICAÇÃO ====================
+
 @app.route('/')
+def index():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        email = request.form.get('email')
+        senha = request.form.get('senha')
+        
+        usuario = Usuario.query.filter_by(email=email).first()
+        
+        if usuario and usuario.check_senha(senha):
+            login_user(usuario)
+            flash('Login realizado com sucesso!', 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page) if next_page else redirect(url_for('dashboard'))
+        else:
+            flash('Email ou senha incorretos', 'danger')
+    
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        nome = request.form.get('nome')
+        email = request.form.get('email')
+        senha = request.form.get('senha')
+        confirmar_senha = request.form.get('confirmar_senha')
+        
+        # Validações
+        if not nome or not email or not senha:
+            flash('Por favor, preencha todos os campos', 'danger')
+            return render_template('register.html')
+        
+        if len(nome) < 3:
+            flash('Nome deve ter pelo menos 3 caracteres', 'danger')
+            return render_template('register.html')
+        
+        if len(senha) < 6:
+            flash('Senha deve ter pelo menos 6 caracteres', 'danger')
+            return render_template('register.html')
+        
+        if senha != confirmar_senha:
+            flash('As senhas não coincidem', 'danger')
+            return render_template('register.html')
+        
+        # Verificar se email já existe
+        if Usuario.query.filter_by(email=email).first():
+            flash('Este email já está cadastrado', 'danger')
+            return render_template('register.html')
+        
+        # Criar novo usuário
+        novo_usuario = Usuario(nome=nome, email=email)
+        novo_usuario.set_senha(senha)
+        
+        try:
+            db.session.add(novo_usuario)
+            db.session.commit()
+            flash('Cadastro realizado com sucesso! Faça login.', 'success')
+            return redirect(url_for('login'))
+        except Exception as e:
+            db.session.rollback()
+            flash('Erro ao criar conta. Tente novamente.', 'danger')
+            print(f"Erro ao criar usuário: {e}")
+    
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Você saiu da sua conta', 'info')
+    return redirect(url_for('login'))
+
+# ==================== ROTAS PROTEGIDAS ====================
+
+@app.route('/dashboard')
+@login_required
 def dashboard():
-    horarios = HorarioRega.query.filter_by(ativo=True).all()
-    status_atual = "Regando agora!" if esta_regando else "Aguardando próximo horário"
-    hora_br = agora_br().strftime('%d/%m/%Y %H:%M:%S')
+    horarios_ativos = HorarioRega.query.filter_by(usuario_id=current_user.id, ativo=True).all()
+    total_horarios = HorarioRega.query.filter_by(usuario_id=current_user.id).all()
+    usuarios_count = Usuario.query.count()
     
-    html_template = """<!DOCTYPE html><html><head><title>Sistema de Irrigação</title><meta charset="UTF-8"><style>body{font-family:Arial;max-width:800px;margin:0 auto;padding:20px}.container{background:#f5f5f5;padding:20px;border-radius:10px}.status{padding:10px;margin:10px 0;border-radius:5px}.regando{background:#d4edda;color:#155724}.aguardando{background:#fff3cd;color:#856404}.horario-item{background:white;padding:15px;margin:10px 0;border-radius:5px;border-left:4px solid #007bff}form{background:white;padding:20px;border-radius:5px;margin:20px 0}input,select,button{padding:8px;margin:5px;border:1px solid #ddd;border-radius:4px}button{background:#007bff;color:white;cursor:pointer}button:hover{background:#0056b3}.btn-delete{background:#dc3545}.btn-ativar{background:#28a745}.hora-servidor{background:#e9ecef;padding:10px;border-radius:5px;margin:10px 0;text-align:center;font-size:14px}</style></head><body><div class="container"><h1>🌱 Sistema de Irrigação</h1><div class="hora-servidor">🕐 Horário do Servidor: <strong>{{hora_br}}</strong> (Brasília)</div><div class="status {{'regando' if esta_regando else 'aguardando'}}"><strong>Status:</strong> {{status_atual}}{% if ultimo_comando %}<br><small>Último: {{ultimo_comando.timestamp}}</small>{% endif %}</div><h2>📅 Horários</h2>{% if horarios %}{% for h in horarios %}<div class="horario-item"><strong>{{h.hora}}</strong> - {{h.duracao//60}} min<br><small>{{h.dias_semana}}</small><br><button class="btn-delete" onclick="deletar({{h.id}})">❌ Deletar</button>{% if not h.ativo %}<button class="btn-ativar" onclick="ativar({{h.id}},true)">✅ Ativar</button>{% else %}<button onclick="ativar({{h.id}},false)">⏸️ Pausar</button>{% endif %}</div>{% endfor %}{% else %}<p>Nenhum horário cadastrado</p>{% endif %}<h2>➕ Novo Horário</h2><form id="f"><label>Hora (horário de Brasília):</label><input type="time" id="hora" required><label>Duração (min):</label><input type="number" id="duracao" value="10" min="1" max="60"><label>Dias:</label><select id="dias" multiple size="3"><option value="Seg" selected>Segunda</option><option value="Ter">Terça</option><option value="Qua">Quarta</option><option value="Qui">Quinta</option><option value="Sex" selected>Sexta</option><option value="Sab">Sábado</option><option value="Dom">Domingo</option></select><br><small>Segure Ctrl/Cmd para selecionar múltiplos dias</small><br><button type="submit">💾 Salvar</button></form></div><script>document.getElementById('f').addEventListener('submit',function(e){e.preventDefault();const h=document.getElementById('hora').value;const d=document.getElementById('duracao').value*60;const dias=Array.from(document.getElementById('dias').selectedOptions).map(o=>o.value);fetch('/adicionar_horario',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hora:h,duracao:d,dias_semana:dias.join(',')})}).then(r=>r.json()).then(data=>{if(data.sucesso){alert('Horário adicionado!');location.reload();}else{alert('Erro');}});});function deletar(id){if(confirm('Deletar?')){fetch(`/deletar_horario/${id}`,{method:'DELETE'}).then(()=>location.reload());}};function ativar(id,a){fetch(`/ativar_horario/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ativo:a})}).then(()=>location.reload());}</script></body></html>"""
+    return render_template('dashboard.html', 
+                         esta_regando=esta_regando,
+                         ultimo_comando=ultimo_comando,
+                         agora_br=agora_br(),
+                         horarios_ativos=horarios_ativos,
+                         total_horarios=total_horarios,
+                         usuarios_count=usuarios_count)
+
+@app.route('/horarios')
+@login_required
+def horarios():
+    horarios_lista = HorarioRega.query.filter_by(usuario_id=current_user.id).order_by(HorarioRega.hora).all()
+    return render_template('horarios.html', horarios=horarios_lista)
+
+@app.route('/adicionar_horario', methods=['POST'])
+@login_required
+def adicionar_horario():
+    data = request.json
+    if not data or 'hora' not in data:
+        return jsonify({"sucesso": False, "erro": "Dados inválidos"}), 400
     
-    return render_template_string(html_template, horarios=horarios, esta_regando=esta_regando, status_atual=status_atual, ultimo_comando=ultimo_comando, hora_br=hora_br)
+    novo_horario = HorarioRega(
+        hora=data['hora'], 
+        duracao=data.get('duracao', 600), 
+        dias_semana=data.get('dias_semana', 'Seg,Sex'),
+        usuario_id=current_user.id
+    )
+    
+    try:
+        db.session.add(novo_horario)
+        db.session.commit()
+        print(f"✅ Novo horário: {data['hora']} (Usuário: {current_user.nome})")
+        return jsonify({"sucesso": True, "id": novo_horario.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"sucesso": False, "erro": str(e)}), 500
+
+@app.route('/deletar_horario/<int:id>', methods=['DELETE'])
+@login_required
+def deletar_horario(id):
+    horario = HorarioRega.query.filter_by(id=id, usuario_id=current_user.id).first_or_404()
+    db.session.delete(horario)
+    db.session.commit()
+    return jsonify({"sucesso": True})
+
+@app.route('/ativar_horario/<int:id>', methods=['PUT'])
+@login_required
+def ativar_horario(id):
+    horario = HorarioRega.query.filter_by(id=id, usuario_id=current_user.id).first_or_404()
+    data = request.json
+    horario.ativo = data.get('ativo', True)
+    db.session.commit()
+    return jsonify({"sucesso": True})
+
+# ==================== API PÚBLICA (ESP32) ====================
 
 @app.route('/status', methods=['GET'])
 def status_api():
     global esta_regando, ultimo_comando
     if esta_regando:
-        return jsonify({"regar": True, "duracao": ultimo_comando["duracao"], "timestamp": ultimo_comando["timestamp"]})
+        return jsonify({
+            "regar": True, 
+            "duracao": ultimo_comando["duracao"], 
+            "timestamp": ultimo_comando["timestamp"]
+        })
     
     agora = agora_br()
     hora_atual = agora.strftime("%H:%M")
@@ -125,44 +299,34 @@ def status_api():
     for horario in horarios:
         dias = [d.strip() for d in horario.dias_semana.split(",")]
         if dia_pt in dias and horario.hora == hora_atual:
-            return jsonify({"regar": True, "duracao": horario.duracao, "timestamp": agora.isoformat()})
+            return jsonify({
+                "regar": True, 
+                "duracao": horario.duracao, 
+                "timestamp": agora.isoformat()
+            })
     
     return jsonify({"regar": False, "timestamp": agora.isoformat()})
 
-@app.route('/adicionar_horario', methods=['POST'])
-def adicionar_horario():
-    data = request.json
-    if not data or 'hora' not in data:
-        return jsonify({"sucesso": False, "erro": "Dados inválidos"}), 400
-    novo_horario = HorarioRega(hora=data['hora'], duracao=data.get('duracao', 600), dias_semana=data.get('dias_semana', 'Seg,Sex'))
-    try:
-        db.session.add(novo_horario)
-        db.session.commit()
-        print(f"✅ Novo horário: {data['hora']} (Brasília)")
-        return jsonify({"sucesso": True, "id": novo_horario.id})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"sucesso": False, "erro": str(e)}), 500
-
-@app.route('/deletar_horario/<int:id>', methods=['DELETE'])
-def deletar_horario(id):
-    horario = HorarioRega.query.get_or_404(id)
-    db.session.delete(horario)
-    db.session.commit()
-    return jsonify({"sucesso": True})
-
-@app.route('/ativar_horario/<int:id>', methods=['PUT'])
-def ativar_horario(id):
-    horario = HorarioRega.query.get_or_404(id)
-    data = request.json
-    horario.ativo = data.get('ativo', True)
-    db.session.commit()
-    return jsonify({"sucesso": True})
-
 @app.route('/api/horarios', methods=['GET'])
-def listar_horarios():
-    horarios = HorarioRega.query.all()
-    return jsonify([{"id": h.id, "hora": h.hora, "duracao": h.duracao, "dias_semana": h.dias_semana, "ativo": h.ativo} for h in horarios])
+def listar_horarios_api():
+    horarios = HorarioRega.query.filter_by(ativo=True).all()
+    return jsonify([{
+        "id": h.id, 
+        "hora": h.hora, 
+        "duracao": h.duracao, 
+        "dias_semana": h.dias_semana, 
+        "ativo": h.ativo
+    } for h in horarios])
+
+# ==================== FILTROS JINJA2 ====================
+
+@app.template_filter('strftime')
+def _jinja2_filter_datetime(date, fmt=None):
+    if fmt:
+        return date.strftime(fmt)
+    return date.strftime('%d/%m/%Y %H:%M:%S')
+
+# ==================== INICIALIZAÇÃO ====================
 
 if __name__ == '__main__':
     print(f"🚀 Iniciando Sistema de Irrigação... Horário: {agora_br().strftime('%d/%m/%Y %H:%M:%S')} (Brasília)")
