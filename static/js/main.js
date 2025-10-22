@@ -21,7 +21,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Fechar menu ao clicar em um link
     const sidebarLinks = document.querySelectorAll('.sidebar-menu a');
     sidebarLinks.forEach(link => {
         link.addEventListener('click', function() {
@@ -33,7 +32,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Marcar menu ativo
     const currentPath = window.location.pathname;
     sidebarLinks.forEach(link => {
         if (link.getAttribute('href') === currentPath) {
@@ -73,12 +71,12 @@ function adicionarHorario() {
             alert('Horário adicionado com sucesso!');
             location.reload();
         } else {
-            alert('Erro ao adicionar horário: ' + data.erro);
+            alert('Erro ao adicionar horário: ' + (data.erro || 'Desconhecido'));
         }
     })
     .catch(error => {
         console.error('Erro:', error);
-        alert('Erro de conexão');
+        alert('Erro de conexão ao adicionar horário');
     });
 }
 
@@ -108,7 +106,7 @@ function ativarHorario(id, ativo) {
     if (confirm(`Tem certeza que deseja ${status} este horário?`)) {
         fetch(`/ativar_horario/${id}`, {
             method: 'PUT',
-            headers: {
+            headers: {                           // ✅ CORRIGIDO: chaves { } em vez de colchetes [ ]
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ ativo: ativo })
@@ -129,7 +127,7 @@ function ativarHorario(id, ativo) {
     }
 }
 
-// Auto-refresh do status a cada 30 segundos
+// Auto-refresh do status
 function atualizarStatus() {
     fetch('/status')
     .then(response => response.json())
@@ -145,7 +143,6 @@ function atualizarStatus() {
             }
         }
         
-        // Atualizar timestamp
         const timestampElement = document.getElementById('ultimo-timestamp');
         if (timestampElement && data.timestamp) {
             const dataHora = new Date(data.timestamp);
@@ -157,28 +154,15 @@ function atualizarStatus() {
     });
 }
 
-// Inicializar auto-refresh
 if (document.getElementById('status-atual')) {
     atualizarStatus();
-    setInterval(atualizarStatus, 30000); // Atualiza a cada 30 segundos
+    setInterval(atualizarStatus, 30000);
 }
 
-// Formatar duração em minutos
-function formatarDuracao(segundos) {
-    const minutos = Math.floor(segundos / 60);
-    const segundosRestantes = segundos % 60;
-    if (segundosRestantes > 0) {
-        return `${minutos} min ${segundosRestantes}s`;
-    }
-    return `${minutos} min`;
-}
-
-// Confirmar logout
 function confirmarLogout() {
     return confirm('Tem certeza que deseja sair?');
 }
 
-// Validação de formulário de login
 function validarLogin() {
     const email = document.getElementById('email').value;
     const senha = document.getElementById('senha').value;
@@ -197,7 +181,6 @@ function validarLogin() {
     return true;
 }
 
-// Validação de formulário de cadastro
 function validarCadastro() {
     const nome = document.getElementById('nome').value;
     const email = document.getElementById('email').value;
