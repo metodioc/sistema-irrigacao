@@ -29,6 +29,11 @@ if database_url:
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///irrigacao.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+    'connect_args': {'connect_timeout': 10}
+}
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -72,15 +77,24 @@ class HorarioRega(db.Model):
 def load_user(user_id):
     return Usuario.query.get(int(user_id))
 
-# Criar tabelas
-with app.app_context():
-    try:
-        if 'psycopg' in str(db.engine.dialect):
+# Criar tabelas de forma lazy (não bloqueia inicialização)
+def init_db():
+    """Inicializa o banco de dados de forma assíncrona"""
+    with app.app_context():
+        try:
             print("🔗 Configurando PostgreSQL com psycopg3")
-        db.create_all()
-        print(f"✅ Banco de dados configurado! Horário: {agora_br().strftime('%d/%m/%Y %H:%M:%S')} (Brasília)")
-    except Exception as e:
-        print(f"❌ Erro ao configurar banco: {e}")
+            db.create_all()
+            print(f"✅ Banco configurado! {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
+        except Exception as e:
+            print(f"❌ Erro ao configurar banco: {e}")
+
+# Inicializar DB na primeira requisição
+@app.before_request
+def before_first_request():
+    """Executa apenas uma vez na primeira requisição"""
+    if not hasattr(app, '_db_initialized'):
+        init_db()
+        app._db_initialized = True
 
 # Função auxiliar para verificar horários
 def verificar_horario_rega():
@@ -135,12 +149,10 @@ def register():
         confirmar_senha = request.form.get('confirmar_senha')
         codigo = request.form.get('codigo')
         
-        # Validações básicas
         if not nome or not email or not senha or not codigo:
             flash('Por favor, preencha todos os campos', 'danger')
             return render_template('register.html')
         
-        # Verificação do código de convite
         if codigo.strip() != CODIGO_CONVITE:
             flash('Código de convite inválido', 'danger')
             return render_template('register.html')
@@ -183,7 +195,6 @@ def logout():
     flash('Você saiu da sua conta', 'info')
     return redirect(url_for('login'))
 
-# Rotas protegidas
 @app.route('/')
 def index():
     if current_user.is_authenticated:
@@ -263,7 +274,6 @@ def ativar_horario(id):
         print(f"Erro ao atualizar horário: {e}")
         return jsonify({'sucesso': False, 'erro': str(e)})
 
-# API pública para ESP32
 @app.route('/status')
 def status_api():
     regar, duracao = verificar_horario_rega()
@@ -282,6 +292,11 @@ def listar_horarios_api():
         'duracao': h.duracao,
         'dias_semana': h.dias_semana
     } for h in horarios])
+
+# Health check para Render
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok'}), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
