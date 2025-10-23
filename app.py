@@ -1,38 +1,27 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 import os
 from dotenv import load_dotenv
-import threading
-import time as time_module
-import pytz
 
+# Carregar variáveis de ambiente
 load_dotenv()
+
+# Código de convite para registro controlado
+CODIGO_CONVITE = os.environ.get('CODIGO_CONVITE', 'IRRIGACAO2025')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Configuração do fuso horário brasileiro
-TIMEZONE = pytz.timezone('America/Sao_Paulo')
+# Configuração do banco de dados PostgreSQL
+database_url = os.environ.get('DATABASE_URL')
+if database_url and database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
-def agora_br():
-    return datetime.now(TIMEZONE)
-
-# Configuração do banco de dados
-if os.environ.get('DATABASE_URL'):
-    database_url = os.environ.get('DATABASE_URL')
-    if database_url.startswith('postgres://'):
-        database_url = database_url.replace('postgres://', 'postgresql+psycopg://', 1)
-    elif database_url.startswith('postgresql://'):
-        database_url = database_url.replace('postgresql://', 'postgresql+psycopg://', 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    print(f"🔗 Configurando PostgreSQL com psycopg3")
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///irrigacao.db'
-    print("📱 Usando SQLite para desenvolvimento local")
-
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///irrigacao.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -40,10 +29,16 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Por favor, faça login para acessar esta página.'
-login_manager.login_message_category = 'warning'
+login_manager.login_message_category = 'info'
 
-# ==================== MODELOS DO BANCO ====================
+# Fuso horário de Brasília
+BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
 
+def agora_br():
+    """Retorna o horário atual em Brasília"""
+    return datetime.now(BRASILIA_TZ)
+
+# Modelos do banco de dados
 class Usuario(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(100), nullable=False)
@@ -62,7 +57,7 @@ class HorarioRega(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     hora = db.Column(db.String(5), nullable=False)
     duracao = db.Column(db.Integer, default=600)
-    dias_semana = db.Column(db.String(50), default="Seg,Sex")
+    dias_semana = db.Column(db.String(50), default='Seg,Sex')
     ativo = db.Column(db.Boolean, default=True)
     criado_em = db.Column(db.DateTime, default=lambda: agora_br())
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=False)
@@ -71,71 +66,36 @@ class HorarioRega(db.Model):
 def load_user(user_id):
     return Usuario.query.get(int(user_id))
 
-# Cria as tabelas
+# Criar tabelas
 with app.app_context():
-    db.create_all()
-    print(f"✅ Banco de dados configurado! Horário: {agora_br().strftime('%d/%m/%Y %H:%M:%S')} (Brasília)")
+    try:
+        if 'psycopg' in str(db.engine.dialect):
+            print("🔗 Configurando PostgreSQL com psycopg3")
+        db.create_all()
+        print(f"✅ Banco de dados configurado! Horário: {agora_br().strftime('%d/%m/%Y %H:%M:%S')} (Brasília)")
+    except Exception as e:
+        print(f"❌ Erro ao configurar banco: {e}")
 
-# ==================== VARIÁVEIS GLOBAIS ====================
+# Função auxiliar para verificar horários
+def verificar_horario_rega():
+    """Verifica se deve regar agora"""
+    try:
+        agora = agora_br()
+        hora_atual = agora.strftime('%H:%M')
+        dia_semana = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][agora.weekday()]
+        
+        horarios = HorarioRega.query.filter_by(ativo=True).all()
+        
+        for horario in horarios:
+            if hora_atual == horario.hora and dia_semana in horario.dias_semana:
+                return True, horario.duracao
+        
+        return False, 0
+    except Exception as e:
+        print(f"❌ Erro no verificador: {e}")
+        return False, 0
 
-esta_regando = False
-ultimo_comando = None
-
-# ==================== THREAD VERIFICADOR ====================
-
-def verificador_horarios():
-    global esta_regando, ultimo_comando
-    while True:
-        try:
-            with app.app_context():
-                agora = agora_br()
-                hora_atual = agora.strftime("%H:%M")
-                dia_atual = agora.strftime("%a")
-                
-                dias_map = {
-                    'Mon': 'Seg', 'Tue': 'Ter', 'Wed': 'Qua', 
-                    'Thu': 'Qui', 'Fri': 'Sex', 'Sat': 'Sab', 'Sun': 'Dom'
-                }
-                dia_pt = dias_map.get(dia_atual, dia_atual)
-                
-                horarios = HorarioRega.query.filter_by(ativo=True).all()
-                
-                for horario in horarios:
-                    dias = [d.strip() for d in horario.dias_semana.split(",")]
-                    if dia_pt in dias:
-                        if horario.hora == hora_atual and not esta_regando:
-                            print(f"🕐 {agora.strftime('%d/%m/%Y %H:%M:%S')}: É hora de regar! ({horario.duracao}s)")
-                            esta_regando = True
-                            ultimo_comando = {
-                                "regar": True, 
-                                "duracao": horario.duracao, 
-                                "hora": horario.hora, 
-                                "timestamp": agora.isoformat()
-                            }
-                            time_module.sleep(horario.duracao)
-                            esta_regando = False
-                            ultimo_comando = {
-                                "regar": False, 
-                                "duracao": 0, 
-                                "hora": horario.hora, 
-                                "timestamp": agora_br().isoformat(), 
-                                "status": "concluido"
-                            }
-                            print(f"✅ Rega concluída às {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
-        except Exception as e:
-            print(f"❌ Erro no verificador: {e}")
-        time_module.sleep(60)
-
-threading.Thread(target=verificador_horarios, daemon=True).start()
-
-# ==================== ROTAS DE AUTENTICAÇÃO ====================
-
-@app.route('/')
-def index():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
-
+# Rotas de autenticação
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -149,7 +109,7 @@ def login():
         
         if usuario and usuario.check_senha(senha):
             login_user(usuario)
-            flash('Login realizado com sucesso!', 'success')
+            flash(f'Bem-vindo, {usuario.nome}!', 'success')
             next_page = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('dashboard'))
         else:
@@ -167,10 +127,16 @@ def register():
         email = request.form.get('email')
         senha = request.form.get('senha')
         confirmar_senha = request.form.get('confirmar_senha')
+        codigo = request.form.get('codigo')
         
-        # Validações
-        if not nome or not email or not senha:
+        # Validações básicas
+        if not nome or not email or not senha or not codigo:
             flash('Por favor, preencha todos os campos', 'danger')
+            return render_template('register.html')
+        
+        # Verificação do código de convite
+        if codigo.strip() != CODIGO_CONVITE:
+            flash('Código de convite inválido', 'danger')
             return render_template('register.html')
         
         if len(nome) < 3:
@@ -185,12 +151,10 @@ def register():
             flash('As senhas não coincidem', 'danger')
             return render_template('register.html')
         
-        # Verificar se email já existe
         if Usuario.query.filter_by(email=email).first():
             flash('Este email já está cadastrado', 'danger')
             return render_template('register.html')
         
-        # Criar novo usuário
         novo_usuario = Usuario(nome=nome, email=email)
         novo_usuario.set_senha(senha)
         
@@ -201,8 +165,8 @@ def register():
             return redirect(url_for('login'))
         except Exception as e:
             db.session.rollback()
+            print(f"⚠️ Erro ao criar usuário: {e}")
             flash('Erro ao criar conta. Tente novamente.', 'danger')
-            print(f"Erro ao criar usuário: {e}")
     
     return render_template('register.html')
 
@@ -213,122 +177,106 @@ def logout():
     flash('Você saiu da sua conta', 'info')
     return redirect(url_for('login'))
 
-# ==================== ROTAS PROTEGIDAS ====================
+# Rotas protegidas
+@app.route('/')
+def index():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    horarios_ativos = HorarioRega.query.filter_by(usuario_id=current_user.id, ativo=True).all()
-    total_horarios = HorarioRega.query.filter_by(usuario_id=current_user.id).all()
-    usuarios_count = Usuario.query.count()
+    agora = agora_br()
+    regar, duracao = verificar_horario_rega()
     
-    return render_template('dashboard.html', 
-                         esta_regando=esta_regando,
-                         ultimo_comando=ultimo_comando,
-                         agora_br=agora_br(),
-                         horarios_ativos=horarios_ativos,
+    horarios_usuario = HorarioRega.query.filter_by(usuario_id=current_user.id).all()
+    total_horarios = len(horarios_usuario)
+    horarios_ativos = len([h for h in horarios_usuario if h.ativo])
+    
+    return render_template('dashboard.html',
+                         horario_atual=agora.strftime('%d/%m/%Y %H:%M:%S'),
+                         status='Regando agora!' if regar else 'Aguardando próximo horário',
+                         duracao=duracao,
                          total_horarios=total_horarios,
-                         usuarios_count=usuarios_count)
+                         horarios_ativos=horarios_ativos)
 
 @app.route('/horarios')
 @login_required
 def horarios():
-    horarios_lista = HorarioRega.query.filter_by(usuario_id=current_user.id).order_by(HorarioRega.hora).all()
-    return render_template('horarios.html', horarios=horarios_lista)
+    horarios_usuario = HorarioRega.query.filter_by(usuario_id=current_user.id).order_by(HorarioRega.hora).all()
+    return render_template('horarios.html', horarios=horarios_usuario)
 
 @app.route('/adicionar_horario', methods=['POST'])
 @login_required
 def adicionar_horario():
-    data = request.json
-    if not data or 'hora' not in data:
-        return jsonify({"sucesso": False, "erro": "Dados inválidos"}), 400
-    
-    novo_horario = HorarioRega(
-        hora=data['hora'], 
-        duracao=data.get('duracao', 600), 
-        dias_semana=data.get('dias_semana', 'Seg,Sex'),
-        usuario_id=current_user.id
-    )
-    
     try:
+        dados = request.get_json()
+        novo_horario = HorarioRega(
+            hora=dados['hora'],
+            duracao=dados['duracao'],
+            dias_semana=dados['dias_semana'],
+            usuario_id=current_user.id
+        )
         db.session.add(novo_horario)
         db.session.commit()
-        print(f"✅ Novo horário: {data['hora']} (Usuário: {current_user.nome})")
-        return jsonify({"sucesso": True, "id": novo_horario.id})
+        return jsonify({'sucesso': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({"sucesso": False, "erro": str(e)}), 500
+        print(f"Erro ao adicionar horário: {e}")
+        return jsonify({'sucesso': False, 'erro': str(e)})
 
 @app.route('/deletar_horario/<int:id>', methods=['DELETE'])
 @login_required
 def deletar_horario(id):
-    horario = HorarioRega.query.filter_by(id=id, usuario_id=current_user.id).first_or_404()
-    db.session.delete(horario)
-    db.session.commit()
-    return jsonify({"sucesso": True})
+    try:
+        horario = HorarioRega.query.get_or_404(id)
+        if horario.usuario_id != current_user.id:
+            return jsonify({'sucesso': False, 'erro': 'Não autorizado'}), 403
+        db.session.delete(horario)
+        db.session.commit()
+        return jsonify({'sucesso': True})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Erro ao deletar horário: {e}")
+        return jsonify({'sucesso': False, 'erro': str(e)})
 
 @app.route('/ativar_horario/<int:id>', methods=['PUT'])
 @login_required
 def ativar_horario(id):
-    horario = HorarioRega.query.filter_by(id=id, usuario_id=current_user.id).first_or_404()
-    data = request.json
-    horario.ativo = data.get('ativo', True)
-    db.session.commit()
-    return jsonify({"sucesso": True})
+    try:
+        horario = HorarioRega.query.get_or_404(id)
+        if horario.usuario_id != current_user.id:
+            return jsonify({'sucesso': False, 'erro': 'Não autorizado'}), 403
+        dados = request.get_json()
+        horario.ativo = dados['ativo']
+        db.session.commit()
+        return jsonify({'sucesso': True})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Erro ao atualizar horário: {e}")
+        return jsonify({'sucesso': False, 'erro': str(e)})
 
-# ==================== API PÚBLICA (ESP32) ====================
-
-@app.route('/status', methods=['GET'])
+# API pública para ESP32
+@app.route('/status')
 def status_api():
-    global esta_regando, ultimo_comando
-    if esta_regando:
-        return jsonify({
-            "regar": True, 
-            "duracao": ultimo_comando["duracao"], 
-            "timestamp": ultimo_comando["timestamp"]
-        })
-    
-    agora = agora_br()
-    hora_atual = agora.strftime("%H:%M")
-    dia_atual = agora.strftime("%a")
-    
-    dias_map = {'Mon': 'Seg', 'Tue': 'Ter', 'Wed': 'Qua', 'Thu': 'Qui', 'Fri': 'Sex', 'Sat': 'Sab', 'Sun': 'Dom'}
-    dia_pt = dias_map.get(dia_atual, dia_atual)
-    
-    horarios = HorarioRega.query.filter_by(ativo=True).all()
-    for horario in horarios:
-        dias = [d.strip() for d in horario.dias_semana.split(",")]
-        if dia_pt in dias and horario.hora == hora_atual:
-            return jsonify({
-                "regar": True, 
-                "duracao": horario.duracao, 
-                "timestamp": agora.isoformat()
-            })
-    
-    return jsonify({"regar": False, "timestamp": agora.isoformat()})
+    regar, duracao = verificar_horario_rega()
+    return jsonify({
+        'regar': regar,
+        'duracao': duracao,
+        'timestamp': agora_br().isoformat()
+    })
 
-@app.route('/api/horarios', methods=['GET'])
+@app.route('/api/horarios')
 def listar_horarios_api():
     horarios = HorarioRega.query.filter_by(ativo=True).all()
     return jsonify([{
-        "id": h.id, 
-        "hora": h.hora, 
-        "duracao": h.duracao, 
-        "dias_semana": h.dias_semana, 
-        "ativo": h.ativo
+        'id': h.id,
+        'hora': h.hora,
+        'duracao': h.duracao,
+        'dias_semana': h.dias_semana
     } for h in horarios])
 
-# ==================== FILTROS JINJA2 ====================
-
-@app.template_filter('strftime')
-def _jinja2_filter_datetime(date, fmt=None):
-    if fmt:
-        return date.strftime(fmt)
-    return date.strftime('%d/%m/%Y %H:%M:%S')
-
-# ==================== INICIALIZAÇÃO ====================
-
 if __name__ == '__main__':
-    print(f"🚀 Iniciando Sistema de Irrigação... Horário: {agora_br().strftime('%d/%m/%Y %H:%M:%S')} (Brasília)")
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)

@@ -7,7 +7,7 @@
     <div class="login-card">
         <div class="login-header">
             <h1><i class="fas fa-user-plus"></i> Criar Conta</h1>
-            <p>Cadastre-se para gerenciar sua irrigação</p>
+            <p>Preencha os dados para se cadastrar</p>
         </div>
         
         <form method="POST" class="login-form" onsubmit="return validarCadastro()">
@@ -16,9 +16,8 @@
                     <i class="fas fa-user"></i> Nome Completo
                 </label>
                 <input type="text" id="nome" name="nome" required 
-                       placeholder="Seu nome completo" 
-                       value="{{ request.form.nome if request.form else '' }}"
-                       minlength="3">
+                       placeholder="Seu nome completo" minlength="3"
+                       value="{{ request.form.nome if request.form else '' }}">
             </div>
             
             <div class="form-group">
@@ -26,7 +25,7 @@
                     <i class="fas fa-envelope"></i> Email
                 </label>
                 <input type="email" id="email" name="email" required 
-                       placeholder="seu@email.com" 
+                       placeholder="seu@email.com"
                        value="{{ request.form.email if request.form else '' }}">
             </div>
             
@@ -36,7 +35,6 @@
                 </label>
                 <input type="password" id="senha" name="senha" required 
                        placeholder="••••••••" minlength="6">
-                <small style="color: #7f8c8d;">Mínimo 6 caracteres</small>
             </div>
             
             <div class="form-group">
@@ -45,6 +43,18 @@
                 </label>
                 <input type="password" id="confirmar_senha" name="confirmar_senha" required 
                        placeholder="••••••••" minlength="6">
+            </div>
+            
+            <div class="form-group">
+                <label for="codigo">
+                    <i class="fas fa-key"></i> Código de Convite
+                </label>
+                <input type="text" id="codigo" name="codigo" required 
+                       placeholder="Digite o código de convite"
+                       value="{{ request.form.codigo if request.form else '' }}">
+                <small style="color: #7f8c8d; font-size: 0.85em; display: block; margin-top: 5px;">
+                    Solicite o código ao administrador do sistema
+                </small>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%;">
