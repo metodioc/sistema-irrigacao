@@ -337,6 +337,12 @@ def listar_horarios_api():
         'dias_semana': h.dias_semana
     } for h in horarios])
 
+# NOVA ROTA: Página de Status da ESP32
+@app.route('/esp32_status')
+@login_required
+def esp32_status():
+    return render_template('esp32_status.html', title='Status da Irrigação')
+
 @app.route('/health')
 def health():
     return jsonify({'status': 'ok'}), 200

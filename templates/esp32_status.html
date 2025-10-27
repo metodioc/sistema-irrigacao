@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+{% block title %}Status da Irrigação{% endblock %}
+{% block content %}
+    <div class="content-section">
+        <div class="main-content-title">Status da Irrigação</div>
+        
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card text-center h-100 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <i class="fas fa-water me-2"></i>Status Atual da Rega
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title" id="statusRega">Carregando...</h3>
+                        <p class="card-text">
+                            <span id="duracaoRega"></span>
+                        </p>
+                    </div>
+                    <div class="card-footer text-muted">
+                        Última atualização: <span id="timestampStatus">Carregando...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-4">
+                <div class="card text-center h-100 shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <i class="fas fa-clock me-2"></i>Próximo Horário de Rega
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title" id="proximoHorario">N/A</h3>
+                        <p class="card-text">
+                            <span id="proximaDuracao"></span>
+                        </p>
+                    </div>
+                    <div class="card-footer text-muted">
+                        Horários configurados no sistema.
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="alert alert-info mt-4 text-center" role="alert">
+            Esta página é atualizada automaticamente a cada 5 segundos.
+        </div>
+    </div>
+
+    <script>
+        function formatarDataHora(isoString) {
+            if (!isoString) return 'N/A';
+            const date = new Date(isoString);
+            return date.toLocaleString('pt-BR', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+        }
+
+        function atualizarStatusESP32() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusRegaElement = document.getElementById('statusRega');
+                    const duracaoRegaElement = document.getElementById('duracaoRega');
+                    const timestampStatusElement = document.getElementById('timestampStatus');
+
+                    if (data.regar) {
+                        statusRegaElement.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-2"></i>Regando Agora!</span>';
+                        duracaoRegaElement.textContent = `Duração: ${data.duracao} minutos`;
+                    } else {
+                        statusRegaElement.innerHTML = '<span class="text-secondary"><i class="fas fa-pause-circle me-2"></i>Aguardando Próximo Horário</span>';
+                        duracaoRegaElement.textContent = ''; // Limpa a duração se não estiver regando
+                    }
+                    timestampStatusElement.textContent = formatarDataHora(data.timestamp);
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar status da ESP32:', error);
+                    document.getElementById('statusRega').textContent = 'Erro ao carregar status';
+                    document.getElementById('duracaoRega').textContent = '';
+                    document.getElementById('timestampStatus').textContent = 'N/A';
+                });
+            
+            // Opcional: Você pode adicionar uma chamada para /api/horarios para mostrar o próximo agendamento
+            // fetch('/api/horarios')
+            //     .then(response => response.json())
+            //     .then(horarios => {
+            //         // Lógica para encontrar o próximo horário e exibir
+            //         // Por simplicidade, deixaremos isso como um exercício futuro
+            //     })
+            //     .catch(error => console.error('Erro ao buscar horários:', error));
+        }
+
+        // Atualiza o status imediatamente ao carregar a página
+        document.addEventListener('DOMContentLoaded', atualizarStatusESP32);
+        // Configura a atualização a cada 5 segundos
+        setInterval(atualizarStatusESP32, 5000); 
+    </script>
+{% endblock content %}

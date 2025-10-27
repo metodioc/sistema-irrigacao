@@ -220,7 +220,7 @@
             }
             main {
                 margin-left: 0;
-                padding: 100px 1rem rem;
+                padding: 100px 1rem 1rem;
             }
             .navbar-brand {
                 font-size: 1rem;
@@ -300,6 +300,13 @@
                 <a class="nav-link {% if request.endpoint == 'horarios' or request.endpoint == 'editar_horario' %}active{% endif %}" 
                    href="{{ url_for('horarios') }}">
                     <i class="fas fa-clock"></i> Horários
+                </a>
+            </li>
+            {# NOVO: Link para a página de Status da ESP32 #}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'esp32_status' %}active{% endif %}" 
+                   href="{{ url_for('esp32_status') }}">
+                    <i class="fas fa-microchip"></i> Status ESP32
                 </a>
             </li>
         </ul>
