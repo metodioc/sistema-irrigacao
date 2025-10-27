@@ -12,27 +12,27 @@ load_dotenv()
 
 # Código de convite para registro controlado
 CODIGO_CONVITE = os.environ.get('CODIGO_CONVITE', 'IRRIGACAO2025')
+print(f"🔑 CÓDIGO DE CONVITE CARREGADO: '{CODIGO_CONVITE}'")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Configuração do banco de dados PostgreSQL
+# Configuração do banco de dados
 database_url = os.environ.get('DATABASE_URL')
 if database_url:
-    # Render fornece postgres://, mas SQLAlchemy precisa de postgresql://
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
-    
-    # Forçar uso do psycopg (versão 3) em vez do psycopg2
     if 'postgresql://' in database_url and '+psycopg' not in database_url:
         database_url = database_url.replace('postgresql://', 'postgresql+psycopg://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///irrigacao.db'
+    print("🔗 Usando SQLite local")
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///irrigacao.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 300,
-    'connect_args': {'connect_timeout': 10}
 }
 
 db = SQLAlchemy(app)
@@ -77,24 +77,13 @@ class HorarioRega(db.Model):
 def load_user(user_id):
     return Usuario.query.get(int(user_id))
 
-# Criar tabelas de forma lazy (não bloqueia inicialização)
-def init_db():
-    """Inicializa o banco de dados de forma assíncrona"""
-    with app.app_context():
-        try:
-            print("🔗 Configurando PostgreSQL com psycopg3")
-            db.create_all()
-            print(f"✅ Banco configurado! {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
-        except Exception as e:
-            print(f"❌ Erro ao configurar banco: {e}")
-
-# Inicializar DB na primeira requisição
-@app.before_request
-def before_first_request():
-    """Executa apenas uma vez na primeira requisição"""
-    if not hasattr(app, '_db_initialized'):
-        init_db()
-        app._db_initialized = True
+# Criar tabelas ANTES de qualquer requisição
+with app.app_context():
+    try:
+        db.create_all()
+        print(f"✅ Banco configurado! {agora_br().strftime('%d/%m/%Y %H:%M:%S')}")
+    except Exception as e:
+        print(f"❌ Erro ao configurar banco: {e}")
 
 # Função auxiliar para verificar horários
 def verificar_horario_rega():
@@ -143,47 +132,57 @@ def register():
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
-        nome = request.form.get('nome')
-        email = request.form.get('email')
-        senha = request.form.get('senha')
-        confirmar_senha = request.form.get('confirmar_senha')
-        codigo = request.form.get('codigo')
-        
-        if not nome or not email or not senha or not codigo:
-            flash('Por favor, preencha todos os campos', 'danger')
-            return render_template('register.html')
-        
-        if codigo.strip() != CODIGO_CONVITE:
-            flash('Código de convite inválido', 'danger')
-            return render_template('register.html')
-        
-        if len(nome) < 3:
-            flash('Nome deve ter pelo menos 3 caracteres', 'danger')
-            return render_template('register.html')
-        
-        if len(senha) < 6:
-            flash('Senha deve ter pelo menos 6 caracteres', 'danger')
-            return render_template('register.html')
-        
-        if senha != confirmar_senha:
-            flash('As senhas não coincidem', 'danger')
-            return render_template('register.html')
-        
-        if Usuario.query.filter_by(email=email).first():
-            flash('Este email já está cadastrado', 'danger')
-            return render_template('register.html')
-        
-        novo_usuario = Usuario(nome=nome, email=email)
-        novo_usuario.set_senha(senha)
-        
         try:
+            nome = request.form.get('nome')
+            email = request.form.get('email')
+            senha = request.form.get('senha')
+            confirmar_senha = request.form.get('confirmar_senha')
+            codigo = request.form.get('codigo')
+            
+            print(f"📝 Tentativa de cadastro: {email}")
+            print(f"🔑 Código recebido: '{codigo}' | Esperado: '{CODIGO_CONVITE}'")
+            
+            # Validações básicas
+            if not nome or not email or not senha or not codigo:
+                flash('Por favor, preencha todos os campos', 'danger')
+                return render_template('register.html')
+            
+            # Verificação do código de convite
+            if codigo.strip() != CODIGO_CONVITE:
+                flash('Código de convite inválido', 'danger')
+                return render_template('register.html')
+            
+            if len(nome) < 3:
+                flash('Nome deve ter pelo menos 3 caracteres', 'danger')
+                return render_template('register.html')
+            
+            if len(senha) < 6:
+                flash('Senha deve ter pelo menos 6 caracteres', 'danger')
+                return render_template('register.html')
+            
+            if senha != confirmar_senha:
+                flash('As senhas não coincidem', 'danger')
+                return render_template('register.html')
+            
+            if Usuario.query.filter_by(email=email).first():
+                flash('Este email já está cadastrado', 'danger')
+                return render_template('register.html')
+            
+            novo_usuario = Usuario(nome=nome, email=email)
+            novo_usuario.set_senha(senha)
+            
             db.session.add(novo_usuario)
             db.session.commit()
+            
+            print(f"✅ Usuário criado: {email}")
             flash('Cadastro realizado com sucesso! Faça login.', 'success')
             return redirect(url_for('login'))
+            
         except Exception as e:
             db.session.rollback()
             print(f"⚠️ Erro ao criar usuário: {e}")
+            import traceback
+            traceback.print_exc()
             flash('Erro ao criar conta. Tente novamente.', 'danger')
     
     return render_template('register.html')
@@ -293,11 +292,10 @@ def listar_horarios_api():
         'dias_semana': h.dias_semana
     } for h in horarios])
 
-# Health check para Render
 @app.route('/health')
 def health():
     return jsonify({'status': 'ok'}), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)
