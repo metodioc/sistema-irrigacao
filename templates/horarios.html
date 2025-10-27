@@ -1,229 +1,157 @@
-{% extends "base.html" %}
-
-{% block title %}Horários - Sistema de Irrigação{% endblock %}
-
+{% extends "layout.html" %}
+{% block title %}Meus Horários{% endblock %}
 {% block content %}
-
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">
-            <i class="fas fa-clock"></i>
-            Gerenciar Horários
-        </h2>
-        <button onclick="document.getElementById('novo-horario-form').scrollIntoView({behavior: 'smooth'})" 
-                class="btn btn-primary">
-            <i class="fas fa-plus"></i> Novo Horário
-        </button>
-    </div>
-    
-    <!-- Lista de Horários -->
-    <div id="lista-horarios">
+    <div class="content-section">
+        {# NOVO: Usando a classe main-content-title para o título da página #}
+        <div class="main-content-title">Meus Horários de Rega</div>
         {% if horarios %}
-            {% for horario in horarios %}
-            <div class="horario-item" id="horario-{{ horario.id }}">
-                <div class="horario-info">
-                    <div class="horario-header">
-                        <div class="horario-tempo">
-                            <i class="fas fa-clock"></i> {{ horario.hora }}
+            <ul class="list-group">
+                {% for horario in horarios %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Horário:</strong> {{ horario.hora }} <br>
+                            <strong>Duração:</strong> {{ horario.duracao }} minutos <br>
+                            <strong>Dias:</strong> {{ horario.dias_semana }} <br>
+                            <strong>Status:</strong>
+                            {% if horario.ativo %}
+                                <span class="badge bg-success">Ativo</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Inativo</span>
+                            {% endif %}
                         </div>
-                        <div class="horario-duracao">
-                            <i class="fas fa-hourglass-half"></i> {{ (horario.duracao // 60) }} min
+                        <div>
+                            <!-- Botão/Link para Editar -->
+                            <a href="{{ url_for('editar_horario', horario_id=horario.id) }}" class="btn btn-info btn-sm me-2">Editar</a>
+                            <!-- Botão de Excluir -->
+                            <button type="button" class="btn btn-danger btn-sm" onclick="deletarHorario({{ horario.id }})">Excluir</button>
+                            <!-- Botão de Ativar/Desativar -->
+                            <button type="button" class="btn btn-warning btn-sm" onclick="toggleAtivo({{ horario.id }}, {{ 'false' if horario.ativo else 'true' }})">
+                                {% if horario.ativo %}Desativar{% else %}Ativar{% endif %}
+                            </button>
                         </div>
-                        <div class="horario-status {{ 'status-ativo' if horario.ativo else 'status-inativo' }}">
-                            {{ 'Ativo' if horario.ativo else 'Inativo' }}
-                        </div>
-                    </div>
-                    <div class="horario-dias">
-                        <i class="fas fa-calendar-alt"></i> {{ horario.dias_semana }}
-                    </div>
-                    <div class="horario-meta">
-                        <small style="color: #7f8c8d;">
-                            Criado em: {{ horario.criado_em.strftime('%d/%m/%Y %H:%M') }}
-                        </small>
-                    </div>
-                </div>
-                
-                <div class="horario-actions">
-                    {% if horario.ativo %}
-                        <button onclick="ativarHorario({{ horario.id }}, false)" 
-                                class="btn btn-warning" title="Pausar">
-                            <i class="fas fa-pause"></i> Pausar
-                        </button>
-                    {% else %}
-                        <button onclick="ativarHorario({{ horario.id }}, true)" 
-                                class="btn btn-success" title="Ativar">
-                            <i class="fas fa-play"></i> Ativar
-                        </button>
-                    {% endif %}
-                    
-                    <button onclick="deletarHorario({{ horario.id }})" 
-                            class="btn btn-danger" title="Deletar">
-                        <i class="fas fa-trash"></i> Deletar
-                    </button>
-                </div>
-            </div>
-            {% endfor %}
+                    </li>
+                {% endfor %}
+            </ul>
         {% else %}
-            <div style="text-align: center; padding: 40px; color: #7f8c8d;">
-                <i class="fas fa-calendar-times" style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;"></i>
-                <h3>Nenhum horário cadastrado</h3>
-                <p>Adicione seu primeiro horário de irrigação abaixo</p>
-            </div>
+            <p>Nenhum horário de rega cadastrado ainda. Adicione um!</p>
         {% endif %}
-    </div>
-</div>
 
-<!-- Formulário de Novo Horário -->
-<div class="card" id="novo-horario-form">
-    <div class="card-header">
-        <h2 class="card-title">
-            <i class="fas fa-plus-circle"></i>
-            Adicionar Novo Horário
-        </h2>
+        <!-- Botão para Adicionar Horário (abre um modal) -->
+        <div class="mt-3 text-center">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalNovoHorario">
+                Adicionar Novo Horário
+            </button>
+        </div>
     </div>
-    
-    <form onsubmit="event.preventDefault(); adicionarHorario();">
-        <div class="form-row">
-            <div class="form-group">
-                <label for="hora">
-                    <i class="fas fa-clock"></i> Hora (Horário de Brasília)
-                </label>
-                <input type="time" id="hora" name="hora" required>
+
+    <!-- MODAL para Adicionar Horário (mantido do código anterior) -->
+    <div class="modal fade" id="modalNovoHorario" tabindex="-1" aria-labelledby="novoHorarioLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="novoHorarioLabel">Adicionar Novo Horário</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="formNovoHorario">
+                        <div class="mb-3">
+                            <label for="novaHora" class="form-label">Hora (HH:MM)</label>
+                            <input type="text" class="form-control" id="novaHora" name="hora" placeholder="07:30" pattern="^(?:2[0-3]|[01]?[0-9]):(?:[0-5]?[0-9])$" required>
+                            <small class="form-text text-muted">Formato: HH:MM (ex: 08:30)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="novaDuracao" class="form-label">Duração (minutos)</label>
+                            <input type="number" class="form-control" id="novaDuracao" name="duracao" min="1" max="1440" placeholder="10" required>
+                            <small class="form-text text-muted">Duração da rega em minutos (1 a 1440).</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Dias da Semana</label><br>
+                            {% for dia in ['Seg','Ter','Qua','Qui','Sex','Sab','Dom'] %}
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="novoDia_{{ dia }}" value="{{ dia }}">
+                                    <label class="form-check-label" for="novoDia_{{ dia }}">{{ dia }}</label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" onclick="salvarNovoHorario()">Salvar</button>
+                </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Seus scripts JavaScript para deletar/ativar horários (e o novo para adicionar) -->
+    <script>
+        function deletarHorario(id) {
+            if (confirm('Tem certeza que deseja deletar este horário?')) {
+                fetch(`/deletar_horario/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.sucesso) {
+                        window.location.reload(); // Recarrega a página para atualizar a lista
+                    } else {
+                        alert('Erro ao deletar horário: ' + data.erro);
+                    }
+                })
+                .catch(error => console.error('Erro:', error));
+            }
+        }
+
+        function toggleAtivo(id, novoStatus) {
+            fetch(`/ativar_horario/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ativo: novoStatus })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.sucesso) {
+                    window.location.reload(); // Recarrega a página para atualizar a lista
+                } else {
+                    alert('Erro ao atualizar status: ' + data.erro);
+                }
+            })
+            .catch(error => console.error('Erro:', error));
+        }
+
+        // Função para salvar um novo horário via modal
+        function salvarNovoHorario() {
+            const hora = document.getElementById('novaHora').value;
+            const duracao = document.getElementById('novaDuracao').value;
+            const diasSelecionados = [];
+            document.querySelectorAll('#formNovoHorario input[type=checkbox]:checked').forEach(c => diasSelecionados.push(c.value));
             
-            <div class="form-group">
-                <label for="duracao">
-                    <i class="fas fa-hourglass-half"></i> Duração (minutos)
-                </label>
-                <input type="number" id="duracao" name="duracao" 
-                       value="10" min="1" max="60" required>
-                <small style="color: #7f8c8d;">Tempo que a bomba ficará ligada</small>
-            </div>
-        </div>
-        
-        <div class="form-group">
-            <label for="dias">
-                <i class="fas fa-calendar-alt"></i> Dias da Semana
-            </label>
-            <select id="dias" name="dias" multiple size="7" required>
-                <option value="Seg" selected>Segunda-feira</option>
-                <option value="Ter">Terça-feira</option>
-                <option value="Qua">Quarta-feira</option>
-                <option value="Qui">Quinta-feira</option>
-                <option value="Sex" selected>Sexta-feira</option>
-                <option value="Sab">Sábado</option>
-                <option value="Dom">Domingo</option>
-            </select>
-            <small style="color: #7f8c8d;">
-                <i class="fas fa-info-circle"></i> 
-                Segure Ctrl (Windows) ou Cmd (Mac) para selecionar múltiplos dias
-            </small>
-        </div>
-        
-        <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button type="submit" class="btn btn-primary">
-                <i class="fas fa-save"></i> Salvar Horário
-            </button>
-            <button type="reset" class="btn btn-secondary">
-                <i class="fas fa-undo"></i> Limpar
-            </button>
-        </div>
-    </form>
-</div>
-
-<style>
-/* Estilos específicos para a página de horários */
-.horario-item {
-    background: white;
-    border: 2px solid #e0e0e0;
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 15px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: all 0.3s ease;
-}
-
-.horario-item:hover {
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    border-color: #3498db;
-}
-
-.horario-info {
-    flex: 1;
-}
-
-.horario-header {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-}
-
-.horario-tempo {
-    font-size: 1.4rem;
-    font-weight: bold;
-    color: #2c3e50;
-}
-
-.horario-duracao {
-    background: #3498db;
-    color: white;
-    padding: 5px 15px;
-    border-radius: 20px;
-    font-size: 0.9rem;
-    font-weight: 500;
-}
-
-.horario-dias {
-    color: #7f8c8d;
-    font-size: 1rem;
-    margin-bottom: 5px;
-}
-
-.horario-meta {
-    margin-top: 8px;
-}
-
-.horario-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-@media (max-width: 768px) {
-    .horario-item {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 15px;
-    }
-    
-    .horario-actions {
-        width: 100%;
-        justify-content: flex-end;
-    }
-}
-
-/* Melhorias no select múltiplo */
-#dias {
-    width: 100%;
-    padding: 10px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 14px;
-}
-
-#dias option {
-    padding: 10px;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-#dias option:checked {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-}
-</style>
-
-{% endblock %}
+            fetch('/adicionar_horario', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    hora: hora,
+                    duracao: duracao,
+                    dias_semana: diasSelecionados.join(',')
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.sucesso) {
+                    location.reload();
+                } else {
+                    alert('Erro ao adicionar horário: ' + data.erro);
+                }
+            })
+            .catch(err => {
+                console.error('Erro:', err);
+                alert('Ocorreu um erro ao tentar adicionar o horário.');
+            });
+        }
+    </script>
+{% endblock content %}

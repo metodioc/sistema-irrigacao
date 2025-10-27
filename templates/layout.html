@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Irrigação - {% block title %}{% endblock %}</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome para ícones (mais próximo do RA90) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <style>
+        /* ======= CORES RA90 - IDENTIDADE VISUAL EXATA ======= */
+        
+        /* Fundo geral - branco puro */
+        body {
+            background-color: #ffffff;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: #2c3e50;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* ======= TOP NAVBAR - BRANCA COM TEXTO ESCURO ======= */
+        .navbar {
+            background-color: #ffffff !important;
+            border-bottom: 1px solid #e0e6ed;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            z-index: 1030;
+            padding: 0.5rem 1rem;
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+            font-size: 1.2rem;
+            color: #1e3a8a !important; /* Azul escuro RA90 */
+            letter-spacing: 0.5px;
+            text-decoration: none;
+        }
+
+        .navbar-brand:hover {
+            color: #1e40af !important;
+        }
+
+        .navbar .nav-link {
+            color: #374151 !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+        }
+
+        .navbar .nav-link:hover {
+            color: #1e3a8a !important;
+        }
+
+        /* ======= SIDEBAR - CINZA MUITO CLARO ======= */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 1020;
+            background-color: #f8fafc; /* Cinza super claro RA90 */
+            border-right: 1px solid #e2e8f0;
+            width: 250px;
+            padding: 70px 0 0 0; /* Espaço para navbar */
+            overflow-y: auto;
+        }
+
+        .sidebar-heading {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #64748b;
+            letter-spacing: 0.05em;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 0;
+        }
+
+        .sidebar .nav-link {
+            color: #475569;
+            font-weight: 500;
+            padding: 0.75rem 1.5rem;
+            margin: 0 0.25rem;
+            border-radius: 0 20px 20px 0;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .sidebar .nav-link i {
+            width: 20px;
+            margin-right: 12px;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        .sidebar .nav-link:hover {
+            background-color: #f1f5f9;
+            color: #1e3a8a;
+            transform: translateX(4px);
+        }
+
+        .sidebar .nav-link:hover i {
+            color: #1e3a8a;
+        }
+
+        .sidebar .nav-link.active {
+            background-color: #e2e8f0; /* Cinza médio RA90 para item ativo */
+            color: #1e293b !important; /* Texto escuro no ativo */
+            font-weight: 600;
+            border-right: 3px solid #1e3a8a;
+        }
+
+        .sidebar .nav-link.active i {
+            color: #1e3a8a;
+        }
+
+        /* ======= CONTEÚDO PRINCIPAL ======= */
+        main {
+            margin-left: 250px;
+            padding: 80px 2rem 2rem;
+            min-height: 100vh;
+            background-color: #f8fafc;
+        }
+
+        /* ======= TÍTULOS RA90 - AZUL ESCURO ======= */
+        .main-content-title {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            color: #ffffff;
+            padding: 20px 30px;
+            font-size: 1.75rem;
+            font-weight: 700;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(30, 58, 138, 0.15);
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        /* ======= CARDS DE CONTEÚDO ======= */
+        .content-section {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 30px;
+        }
+
+        /* ======= BOTÕES - PADRÃO RA90 ======= */
+        .btn-primary {
+            background-color: #1e3a8a;
+            border-color: #1e3a8a;
+        }
+
+        .btn-primary:hover {
+            background-color: #1e40af;
+            border-color: #1e40af;
+        }
+
+        .btn-info {
+            background-color: #0ea5e9;
+            border-color: #0ea5e9;
+        }
+
+        .btn-success {
+            background-color: #10b981;
+            border-color: #10b981;
+        }
+
+        .btn-warning {
+            background-color: #f59e0b;
+            border-color: #f59e0b;
+        }
+
+        .btn-danger {
+            background-color: #ef4444;
+            border-color: #ef4444;
+        }
+
+        /* ======= LISTAS E BADGES ======= */
+        .list-group-item {
+            border: 1px solid #e2e8f0;
+            margin-bottom: 0.5rem;
+            border-radius: 8px;
+        }
+
+        .badge {
+            font-size: 0.75em;
+            padding: 0.4em 0.6em;
+        }
+
+        /* ======= MODAL ======= */
+        .modal-content {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            border-top: 1px solid #e2e8f0;
+            padding: 1rem 1.5rem;
+        }
+
+        /* ======= RESPONSIVO ======= */
+        @media (max-width: 992px) {
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+                padding-top: 0;
+            }
+            main {
+                margin-left: 0;
+                padding: 100px 1rem rem;
+            }
+            .navbar-brand {
+                font-size: 1rem;
+            }
+        }
+
+        /* ======= SCROLLBAR CUSTOMIZADA ======= */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- ======= NAVBAR SUPERIOR ======= -->
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                <i class="fas fa-tint me-2"></i>Sistema de Irrigação
+            </a>
+            
+            <button class="navbar-toggler" type="button" 
+                    data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
+                <ul class="navbar-nav">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link">
+                                <i class="fas fa-user me-1"></i>{{ current_user.nome }}
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('logout') }}">
+                                <i class="fas fa-sign-out-alt me-1"></i>Sair
+                            </a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('login') }}">
+                                <i class="fas fa-sign-in-alt me-1"></i>Login
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ======= SIDEBAR ======= -->
+    <nav class="sidebar">
+        <div class="sidebar-heading">
+            <i class="fas fa-cogs me-2"></i>APLICAÇÕES
+        </div>
+        
+        <ul class="nav flex-column">
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" 
+                   href="{{ url_for('dashboard') }}">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'horarios' or request.endpoint == 'editar_horario' %}active{% endif %}" 
+                   href="{{ url_for('horarios') }}">
+                    <i class="fas fa-clock"></i> Horários
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- ======= CONTEÚDO PRINCIPAL ======= -->
+    <main>
+        <!-- Mensagens Flash -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Conteúdo das páginas -->
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

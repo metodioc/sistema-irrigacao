@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+{% block content %}
+    <div class="content-section">
+        <form method="POST" action="{{ url_for('edit_schedule', schedule_id=schedule.id) }}">
+            <fieldset class="form-group">
+                <legend class="border-bottom mb-4">Editar Agendamento</legend>
+                <div class="form-group">
+                    <label for="hour">Hora (0-23):</label>
+                    <input type="number" id="hour" name="hour" class="form-control" min="0" max="23" value="{{ schedule.hour }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="minute">Minuto (0-59):</label>
+                    <input type="number" id="minute" name="minute" class="form-control" min="0" max="59" value="{{ schedule.minute }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="duration">Duração (minutos):</label>
+                    <input type="number" id="duration" name="duration" class="form-control" min="1" value="{{ schedule.duration }}" required>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" id="active" name="active" class="form-check-input" {% if schedule.active %}checked{% endif %}>
+                    <label class="form-check-label" for="active">Ativo</label>
+                </div>
+            </fieldset>
+            <div class="form-group mt-3">
+                <button type="submit" class="btn btn-primary">Atualizar Agendamento</button>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+{% endblock content %}

@@ -1,80 +1,17 @@
-{% extends "base.html" %}
-
-{% block title %}Dashboard - Sistema de Irrigação{% endblock %}
-
+{% extends "layout.html" %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
-<div class="dashboard-container">
-    <div class="dashboard-header">
-        <h1><i class="fas fa-tachometer-alt"></i> Dashboard</h1>
-        <p>Visão geral do sistema de irrigação</p>
-    </div>
-
-    <div class="info-card">
-        <h3><i class="fas fa-clock"></i> Horário Atual</h3>
-        <p class="info-value">
-            🕐 {{ horario_atual }}
-        </p>
-    </div>
-
-    <div class="status-card">
-        <h3><i class="fas fa-info-circle"></i> Status do Sistema</h3>
-        <div id="status-atual" class="status {% if status == 'Regando agora!' %}regando{% else %}aguardando{% endif %}">
-            {{ status }}
-        </div>
-        {% if duracao > 0 %}
-        <p class="status-info">
-            <i class="fas fa-hourglass-half"></i> Duração: {{ duracao // 60 }} minutos
-        </p>
+    <div class="content-section">
+        {# NOVO: Usando a classe main-content-title para o título da página #}
+        <div class="main-content-title">Dashboard do Sistema de Irrigação</div>
+        <p><strong>Horário Atual:</strong> {{ horario_atual }}</p>
+        <p><strong>Status da Rega:</strong> {{ status }}</p>
+        {% if status == 'Regando agora!' %}
+            <p><strong>Duração da Rega:</strong> {{ duracao }} minutos</p>
         {% endif %}
-        <p id="ultimo-timestamp" class="status-timestamp">
-            Última atualização: {{ horario_atual }}
-        </p>
+        <hr>
+        <p><strong>Total de Horários Cadastrados:</strong> {{ total_horarios }}</p>
+        <p><strong>Horários Ativos:</strong> {{ horarios_ativos }}</p>
+        <!-- Adicione mais informações ou gráficos aqui -->
     </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon">
-                <i class="fas fa-list"></i>
-            </div>
-            <div class="stat-info">
-                <h4>Total de Horários</h4>
-                <p class="stat-value">{{ total_horarios }}</p>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon active">
-                <i class="fas fa-check-circle"></i>
-            </div>
-            <div class="stat-info">
-                <h4>Horários Ativos</h4>
-                <p class="stat-value">{{ horarios_ativos }}</p>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon inactive">
-                <i class="fas fa-pause-circle"></i>
-            </div>
-            <div class="stat-info">
-                <h4>Horários Inativos</h4>
-                <p class="stat-value">{{ total_horarios - horarios_ativos }}</p>
-            </div>
-        </div>
-    </div>
-
-    <div class="quick-actions">
-        <h3><i class="fas fa-bolt"></i> Ações Rápidas</h3>
-        <div class="actions-grid">
-            <a href="{{ url_for('horarios') }}" class="action-btn">
-                <i class="fas fa-clock"></i>
-                <span>Gerenciar Horários</span>
-            </a>
-            <a href="{{ url_for('status_api') }}" target="_blank" class="action-btn">
-                <i class="fas fa-plug"></i>
-                <span>Testar API</span>
-            </a>
-        </div>
-    </div>
-</div>
-{% endblock %}
+{% endblock content %}

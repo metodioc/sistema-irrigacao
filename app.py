@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 import os
 from dotenv import load_dotenv
+import re # Importa o módulo de expressões regulares para validação de hora
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -57,18 +58,18 @@ class Usuario(UserMixin, db.Model):
     senha_hash = db.Column(db.String(200), nullable=False)
     criado_em = db.Column(db.DateTime, default=lambda: agora_br())
     horarios = db.relationship('HorarioRega', backref='usuario', lazy=True, cascade='all, delete-orphan')
-    
+
     def set_senha(self, senha):
         self.senha_hash = bcrypt.generate_password_hash(senha).decode('utf-8')
-    
+
     def check_senha(self, senha):
         return bcrypt.check_password_hash(self.senha_hash, senha)
 
 class HorarioRega(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    hora = db.Column(db.String(5), nullable=False)
-    duracao = db.Column(db.Integer, default=600)
-    dias_semana = db.Column(db.String(50), default='Seg,Sex')
+    hora = db.Column(db.String(5), nullable=False) # Formato "HH:MM"
+    duracao = db.Column(db.Integer, default=600) # Duração em minutos (assumindo que 600 é 10 minutos)
+    dias_semana = db.Column(db.String(50), default='Seg,Sex') # Ex: "Seg,Ter,Qua"
     ativo = db.Column(db.Boolean, default=True)
     criado_em = db.Column(db.DateTime, default=lambda: agora_br())
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=False)
@@ -92,13 +93,10 @@ def verificar_horario_rega():
         agora = agora_br()
         hora_atual = agora.strftime('%H:%M')
         dia_semana = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][agora.weekday()]
-        
         horarios = HorarioRega.query.filter_by(ativo=True).all()
-        
         for horario in horarios:
             if hora_atual == horario.hora and dia_semana in horario.dias_semana:
                 return True, horario.duracao
-        
         return False, 0
     except Exception as e:
         print(f"❌ Erro no verificador: {e}")
@@ -109,13 +107,10 @@ def verificar_horario_rega():
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
-    
     if request.method == 'POST':
         email = request.form.get('email')
         senha = request.form.get('senha')
-        
         usuario = Usuario.query.filter_by(email=email).first()
-        
         if usuario and usuario.check_senha(senha):
             login_user(usuario)
             flash(f'Bem-vindo, {usuario.nome}!', 'success')
@@ -123,14 +118,12 @@ def login():
             return redirect(next_page) if next_page else redirect(url_for('dashboard'))
         else:
             flash('Email ou senha incorretos', 'danger')
-    
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
-    
     if request.method == 'POST':
         try:
             nome = request.form.get('nome')
@@ -138,53 +131,41 @@ def register():
             senha = request.form.get('senha')
             confirmar_senha = request.form.get('confirmar_senha')
             codigo = request.form.get('codigo')
-            
             print(f"📝 Tentativa de cadastro: {email}")
             print(f"🔑 Código recebido: '{codigo}' | Esperado: '{CODIGO_CONVITE}'")
-            
             # Validações básicas
             if not nome or not email or not senha or not codigo:
                 flash('Por favor, preencha todos os campos', 'danger')
                 return render_template('register.html')
-            
             # Verificação do código de convite
             if codigo.strip() != CODIGO_CONVITE:
                 flash('Código de convite inválido', 'danger')
                 return render_template('register.html')
-            
             if len(nome) < 3:
                 flash('Nome deve ter pelo menos 3 caracteres', 'danger')
                 return render_template('register.html')
-            
             if len(senha) < 6:
                 flash('Senha deve ter pelo menos 6 caracteres', 'danger')
                 return render_template('register.html')
-            
             if senha != confirmar_senha:
                 flash('As senhas não coincidem', 'danger')
                 return render_template('register.html')
-            
             if Usuario.query.filter_by(email=email).first():
                 flash('Este email já está cadastrado', 'danger')
                 return render_template('register.html')
-            
             novo_usuario = Usuario(nome=nome, email=email)
             novo_usuario.set_senha(senha)
-            
             db.session.add(novo_usuario)
             db.session.commit()
-            
             print(f"✅ Usuário criado: {email}")
             flash('Cadastro realizado com sucesso! Faça login.', 'success')
             return redirect(url_for('login'))
-            
         except Exception as e:
             db.session.rollback()
             print(f"⚠️ Erro ao criar usuário: {e}")
             import traceback
             traceback.print_exc()
             flash('Erro ao criar conta. Tente novamente.', 'danger')
-    
     return render_template('register.html')
 
 @app.route('/logout')
@@ -205,17 +186,15 @@ def index():
 def dashboard():
     agora = agora_br()
     regar, duracao = verificar_horario_rega()
-    
     horarios_usuario = HorarioRega.query.filter_by(usuario_id=current_user.id).all()
     total_horarios = len(horarios_usuario)
     horarios_ativos = len([h for h in horarios_usuario if h.ativo])
-    
     return render_template('dashboard.html',
-                         horario_atual=agora.strftime('%d/%m/%Y %H:%M:%S'),
-                         status='Regando agora!' if regar else 'Aguardando próximo horário',
-                         duracao=duracao,
-                         total_horarios=total_horarios,
-                         horarios_ativos=horarios_ativos)
+                           horario_atual=agora.strftime('%d/%m/%Y %H:%M:%S'),
+                           status='Regando agora!' if regar else 'Aguardando próximo horário',
+                           duracao=duracao,
+                           total_horarios=total_horarios,
+                           horarios_ativos=horarios_ativos)
 
 @app.route('/horarios')
 @login_required
@@ -228,10 +207,22 @@ def horarios():
 def adicionar_horario():
     try:
         dados = request.get_json()
+        nova_hora = dados['hora']
+        nova_duracao = int(dados['duracao'])
+        novos_dias_semana = dados['dias_semana']
+
+        # Validação do formato da hora (HH:MM)
+        if not re.match(r'^(?:2[0-3]|[01]?[0-9]):(?:[0-5]?[0-9])$', nova_hora):
+            return jsonify({'sucesso': False, 'erro': 'Formato de hora inválido. Use HH:MM.'}), 400
+        if not (1 <= nova_duracao <= 1440): # Duração entre 1 minuto e 24 horas
+            return jsonify({'sucesso': False, 'erro': 'Duração inválida. Use um valor entre 1 e 1440 minutos.'}), 400
+        if not novos_dias_semana:
+            return jsonify({'sucesso': False, 'erro': 'Selecione pelo menos um dia da semana.'}), 400
+
         novo_horario = HorarioRega(
-            hora=dados['hora'],
-            duracao=dados['duracao'],
-            dias_semana=dados['dias_semana'],
+            hora=nova_hora,
+            duracao=nova_duracao,
+            dias_semana=novos_dias_semana,
             usuario_id=current_user.id
         )
         db.session.add(novo_horario)
@@ -240,7 +231,61 @@ def adicionar_horario():
     except Exception as e:
         db.session.rollback()
         print(f"Erro ao adicionar horário: {e}")
-        return jsonify({'sucesso': False, 'erro': str(e)})
+        return jsonify({'sucesso': False, 'erro': str(e)}), 500
+
+# NOVA ROTA: Editar Horário
+@app.route("/editar_horario/<int:horario_id>", methods=['GET', 'POST'])
+@login_required
+def editar_horario(horario_id):
+    horario = HorarioRega.query.get_or_404(horario_id)
+
+    # Garante que apenas o dono do agendamento possa editá-lo
+    if horario.usuario_id != current_user.id:
+        flash('Você não tem permissão para editar este agendamento.', 'danger')
+        return redirect(url_for('horarios')) # Redireciona para a lista de horários
+
+    if request.method == 'POST':
+        try:
+            # Coleta os dados do formulário
+            nova_hora = request.form.get('hora')
+            nova_duracao = int(request.form.get('duracao'))
+            # Coleta os dias da semana (pode vir como uma lista de strings)
+            dias_selecionados = request.form.getlist('dias_semana')
+            novos_dias_semana = ','.join(dias_selecionados) # Junta em uma string
+            novo_ativo = request.form.get('ativo') == 'on' # Checkbox retorna 'on' ou None
+
+            # Validação do formato da hora (HH:MM)
+            if not re.match(r'^(?:2[0-3]|[01]?[0-9]):(?:[0-5]?[0-9])$', nova_hora):
+                flash('Formato de hora inválido. Use HH:MM.', 'danger')
+                return render_template('editar_horario.html', title='Editar Horário', horario=horario, dias_semana_list=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'])
+            if not (1 <= nova_duracao <= 1440): # Duração entre 1 minuto e 24 horas
+                flash('Duração inválida. Use um valor entre 1 e 1440 minutos.', 'danger')
+                return render_template('editar_horario.html', title='Editar Horário', horario=horario, dias_semana_list=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'])
+            if not novos_dias_semana:
+                flash('Selecione pelo menos um dia da semana.', 'danger')
+                return render_template('editar_horario.html', title='Editar Horário', horario=horario, dias_semana_list=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'])
+
+            # Atualiza o objeto HorarioRega com os novos dados
+            horario.hora = nova_hora
+            horario.duracao = nova_duracao
+            horario.dias_semana = novos_dias_semana
+            horario.ativo = novo_ativo
+
+            db.session.commit() # Salva as alterações no banco de dados
+            flash('Agendamento atualizado com sucesso!', 'success')
+            return redirect(url_for('horarios')) # Redireciona para a lista de horários
+
+        except ValueError:
+            flash('Entrada inválida. Certifique-se de que os campos numéricos estão corretos.', 'danger')
+        except Exception as e:
+            db.session.rollback()
+            print(f"Erro ao atualizar horário: {e}")
+            flash(f'Ocorreu um erro ao atualizar o agendamento: {e}', 'danger')
+
+    # Se for um GET request, exibe o formulário preenchido
+    # Passa a lista de dias da semana para o template
+    return render_template('editar_horario.html', title='Editar Horário', horario=horario, dias_semana_list=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'])
+
 
 @app.route('/deletar_horario/<int:id>', methods=['DELETE'])
 @login_required
@@ -255,7 +300,7 @@ def deletar_horario(id):
     except Exception as e:
         db.session.rollback()
         print(f"Erro ao deletar horário: {e}")
-        return jsonify({'sucesso': False, 'erro': str(e)})
+        return jsonify({'sucesso': False, 'erro': str(e)}), 500
 
 @app.route('/ativar_horario/<int:id>', methods=['PUT'])
 @login_required
@@ -271,7 +316,7 @@ def ativar_horario(id):
     except Exception as e:
         db.session.rollback()
         print(f"Erro ao atualizar horário: {e}")
-        return jsonify({'sucesso': False, 'erro': str(e)})
+        return jsonify({'sucesso': False, 'erro': str(e)}), 500
 
 @app.route('/status')
 def status_api():
@@ -299,3 +344,4 @@ def health():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
+
