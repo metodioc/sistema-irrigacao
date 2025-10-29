@@ -328,8 +328,10 @@ def status_api():
     })
 
 @app.route('/api/horarios')
+@login_required # Adiciona a exigência de login
 def listar_horarios_api():
-    horarios = HorarioRega.query.filter_by(ativo=True).all()
+    # Agora filtra apenas os horários do usuário logado que estão ativos
+    horarios = HorarioRega.query.filter_by(usuario_id=current_user.id, ativo=True).all()
     return jsonify([{
         'id': h.id,
         'hora': h.hora,
